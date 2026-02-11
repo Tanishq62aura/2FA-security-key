@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>ESP32-S3 TOTP Key Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<style>
+:root {
+  --bg:#0b1120;
+  --accent:#22c55e;
+  --text:#e5e7eb;
+  --text-soft:#9ca3af;
+  --border:#1f2937;
+}
+* { box-sizing:border-box }
+body {
+  margin:0;
+  font-family:system-ui;
+  background:radial-gradient(circle at top,#1f2937 0,#020617 45%);
+  color:var(--text);
+  display:flex;
+  justify-content:center;
+  min-height:100vh;
+}
+.app {
+  width:100%;
+  max-width:420px;
+  padding:24px;
+}
+.card {
+  background:rgba(15,23,42,.94);
+  border-radius:14px;
+  border:1px solid var(--border);
+  padding:20px;
+}
+.otp-value {
+  font-size:40px;
+  letter-spacing:.35em;
+  text-align:center;
+  font-weight:600;
+}
+.dim { color:var(--text-soft) }
+.meta {
+  display:flex;
+  justify-content:space-between;
+  margin-top:8px;
+  font-size:13px;
+}
+.progress-bar {
+  height:6px;
+  border-radius:999px;
+  background:#020617;
+  overflow:hidden;
+  margin-top:8px;
+}
+.progress-inner {
+  height:100%;
+  background:linear-gradient(90deg,#22c55e,#a3e635);
+  transform-origin:left;
+}
+button {
+  margin-top:14px;
+  width:100%;
+  padding:8px;
+  background:#020617;
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:999px;
+  cursor:pointer;
+}
+button:hover { background:#0f172a }
+</style>
+</head>
+
+<body>
+<div class="app">
+  <div class="card">
+    <div class="otp-value" id="otp-display">
+      <span class="dim">------</span>
+    </div>
+
+    <div class="meta">
+      <div>Seconds left: <span id="seconds-left">–</span></div>
+      <div>Unix: <span id="now-unix">–</span></div>
+    </div>
+
+    <div class="progress-bar">
+      <div class="progress-inner" id="progress-inner"></div>
+    </div>
+
+    <button id="btn-refresh">Refresh</button>
+  </div>
+</div>
+
+<script>
+/* ==============================
+   GLOBAL STATE
+============================== */
+let otpTimer = null;
+let otpAnchorPerf = 0;
+let otpAnchorLeft = 0;
+const OTP_PERIOD = 30;
+
+/* ==============================
+   DOM
+============================== */
+const otpDisplayEl = document.getElementById("otp-display");
+const secondsLeftEl = document.getElementById("seconds-left");
+const nowUnixEl = document.getElementById("now-unix");
+const progressInnerEl = document.getElementById("progress-inner");
+const btnRefresh = document.getElementById("btn-refresh");
+
+/* ==============================
+   API
+============================== */
+async function fetchJSON(url) {
+  const res = await fetch(url, {
+    headers: { "Content-Type":"application/json" }
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error("HTTP error");
+  return data;
+}
+
+/* ==============================
+   OTP ENGINE (NO DRIFT)
+============================== */
+function startOtpEngine(secondsLeft) {
+  if (typeof secondsLeft !== "number") return;
+
+  otpAnchorPerf = performance.now();
+  otpAnchorLeft = secondsLeft;
+
+  if (otpTimer) clearInterval(otpTimer);
+
+  updateOtpUI(secondsLeft);
+
+  otpTimer = setInterval(() => {
+    const elapsed =
+      Math.floor((performance.now() - otpAnchorPerf) / 1000);
+
+    const left = otpAnchorLeft - elapsed;
+
+    if (left <= 0) {
+      clearInterval(otpTimer);
+      otpTimer = null;
+      refreshStatus(); // exact rollover
+      return;
+    }
+
+    updateOtpUI(left);
+  }, 1000);
+}
+
+function updateOtpUI(left) {
+  secondsLeftEl.textContent = left;
+  progressInnerEl.style.transform =
+    `scaleX(${1 - left / OTP_PERIOD})`;
+}
+
+/* ==============================
+   RENDER
+============================== */
+function renderStatus(s) {
+  if (!s) return;
+
+  nowUnixEl.textContent = s.now_unix ?? "–";
+
+  if (s.current_otp && s.current_otp.length === 6) {
+    otpDisplayEl.innerHTML =
+      `<span>${s.current_otp.slice(0,3)}</span>
+       <span class="dim">${s.current_otp.slice(3)}</span>`;
+  } else {
+    otpDisplayEl.innerHTML =
+      `<span class="dim">------</span>`;
+  }
+
+  if (typeof s.seconds_left === "number") {
+    startOtpEngine(s.seconds_left);
+  }
+}
+
+/* ==============================
+   BACKEND SYNC
+============================== */
+async function refreshStatus() {
+  try {
+    const res = await fetchJSON("/api/status");
+    if (res.ok) renderStatus(res.status);
+  } catch (e) {
+    console.error("Status error:", e.message);
+  }
+}
+
+/* ==============================
+   EVENTS
+============================== */
+btnRefresh.addEventListener("click", refreshStatus);
+
+/* ==============================
+   INIT
+============================== */
+refreshStatus();
+</script>
+</body>
+</html>
