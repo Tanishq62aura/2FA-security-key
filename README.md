@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ESP32-S3 Offline TOTP Key
 
 A secure, offline TOTP (Time-based One-Time Password) generator built on ESP32-S3 microcontroller. Features multi-account support, PIN-based locking, AES-CTR encrypted storage, USB HID keyboard emulation for typing OTPs, and a web-based management interface.
@@ -149,3 +150,6 @@ This project is open-source. Use at your own risk.
 ## Contributing
 
 Feel free to submit issues and pull requests for improvements.
+=======
+# 2fa-Key
+>>>>>>> 8a4ac60c6199e0a29fc65c3e60f525e5ab0934ed
