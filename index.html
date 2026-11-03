@@ -2,206 +2,877 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>ESP32-S3 TOTP Key Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
+<title>SecureKey — Identity Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
 <style>
-:root {
-  --bg:#0b1120;
-  --accent:#22c55e;
-  --text:#e5e7eb;
-  --text-soft:#9ca3af;
-  --border:#1f2937;
-}
-* { box-sizing:border-box }
-body {
-  margin:0;
-  font-family:system-ui;
-  background:radial-gradient(circle at top,#1f2937 0,#020617 45%);
-  color:var(--text);
-  display:flex;
-  justify-content:center;
-  min-height:100vh;
-}
-.app {
-  width:100%;
-  max-width:420px;
-  padding:24px;
-}
-.card {
-  background:rgba(15,23,42,.94);
-  border-radius:14px;
-  border:1px solid var(--border);
-  padding:20px;
-}
-.otp-value {
-  font-size:40px;
-  letter-spacing:.35em;
-  text-align:center;
-  font-weight:600;
-}
-.dim { color:var(--text-soft) }
-.meta {
-  display:flex;
-  justify-content:space-between;
-  margin-top:8px;
-  font-size:13px;
-}
-.progress-bar {
-  height:6px;
-  border-radius:999px;
-  background:#020617;
-  overflow:hidden;
-  margin-top:8px;
-}
-.progress-inner {
-  height:100%;
-  background:linear-gradient(90deg,#22c55e,#a3e635);
-  transform-origin:left;
-}
-button {
-  margin-top:14px;
-  width:100%;
-  padding:8px;
-  background:#020617;
-  border:1px solid var(--border);
-  color:var(--text);
-  border-radius:999px;
-  cursor:pointer;
-}
-button:hover { background:#0f172a }
+  /* ── VARIABLES ──────────────────────────────────── */
+  :root {
+    --bg:        #080c10;
+    --surface:   #0d1218;
+    --border:    #1a2535;
+    --accent:    #00e5ff;
+    --accent2:   #00ff9d;
+    --danger:    #ff3b5c;
+    --text:      #c8d8e8;
+    --text-dim:  #4a6070;
+    --mono:      'Share Tech Mono', monospace;
+    --sans:      'Syne', sans-serif;
+    --radius:    4px;
+    --glow:      0 0 20px rgba(0,229,255,.18), 0 0 60px rgba(0,229,255,.06);
+    --glow2:     0 0 20px rgba(0,255,157,.18), 0 0 60px rgba(0,255,157,.06);
+  }
+
+  /* ── RESET ──────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── SCANLINE OVERLAY ───────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,.08) 2px,
+      rgba(0,0,0,.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* ── GRID BACKGROUND ────────────────────────────── */
+  .grid-bg {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+  }
+
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(90px);
+    pointer-events: none;
+    opacity: .35;
+  }
+  .blob-1 { width: 420px; height: 420px; top: -120px; left: -120px;  background: rgba(0,229,255,.12); }
+  .blob-2 { width: 380px; height: 380px; bottom: -80px; right: -80px; background: rgba(0,255,157,.10); }
+
+  /* ── WRAPPER ────────────────────────────────────── */
+  .wrapper {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 480px;
+    padding: 16px;
+    animation: fadeUp .6s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── CARD ───────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 40px 36px 36px;
+    position: relative;
+    clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,229,255,.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .corner {
+    position: absolute;
+    width: 16px; height: 16px;
+    border-color: var(--accent);
+    border-style: solid;
+    opacity: .5;
+  }
+  .corner-tl { top: 8px; left: 8px;  border-width: 2px 0 0 2px; }
+  .corner-tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
+  .corner-bl { bottom: 8px; left: 8px;  border-width: 0 0 2px 2px; }
+  .corner-br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+
+  /* ── HEADER ─────────────────────────────────────── */
+  .header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    border: 1px solid var(--accent);
+    margin-bottom: 16px;
+    position: relative;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: rgba(0,229,255,.07);
+    box-shadow: var(--glow);
+  }
+  .logo svg { width: 26px; height: 26px; color: var(--accent); }
+  .title {
+    font-family: var(--sans);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    color: #fff;
+    text-transform: uppercase;
+  }
+  .subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  /* ── STEPS ──────────────────────────────────────── */
+  .step { display: none; }
+  .step.active { display: block; animation: fadeIn .35s ease both; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── FORM ELEMENTS ──────────────────────────────── */
+  .field { margin-bottom: 20px; }
+  label {
+    display: block; font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+  input[type="text"], input[type="password"] {
+    width: 100%; background: rgba(255,255,255,.03); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--mono); font-size: 14px; padding: 12px 14px;
+    outline: none; transition: border-color .2s, box-shadow .2s; caret-color: var(--accent);
+  }
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0,229,255,.15), inset 0 0 12px rgba(0,229,255,.03);
+  }
+  input::placeholder { color: var(--text-dim); }
+
+  /* ── BUTTON ─────────────────────────────────────── */
+  .btn {
+    width: 100%; padding: 13px; font-family: var(--mono); font-size: 13px;
+    letter-spacing: .18em; text-transform: uppercase; cursor: pointer;
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+    position: relative; overflow: hidden; transition: color .2s, box-shadow .2s; margin-top: 4px;
+  }
+  .btn::before {
+    content: ''; position: absolute; inset: 0; background: var(--accent);
+    transform: translateX(-101%); transition: transform .25s ease;
+  }
+  .btn:hover { color: #000; box-shadow: var(--glow); }
+  .btn:hover::before { transform: translateX(0); }
+  .btn span { position: relative; z-index: 1; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled::before { display: none; }
+  .btn:disabled:hover { color: var(--accent); box-shadow: none; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.danger::before { background: var(--danger); }
+  .btn.danger:hover   { color: #fff; }
+
+  /* ── STATUS / ERROR ─────────────────────────────── */
+  .msg {
+    font-size: 11px; letter-spacing: .1em; padding: 10px 12px; margin-bottom: 16px;
+    border-left: 2px solid; display: none;
+  }
+  .msg.show  { display: block; animation: fadeIn .2s ease; }
+  .msg.error { border-color: var(--danger); color: var(--danger); background: rgba(255,59,92,.06); }
+  .msg.info  { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,.05); }
+  .msg.ok    { border-color: var(--accent2); color: var(--accent2); background: rgba(0,255,157,.05); }
+
+  /* ── DIVIDER ────────────────────────────────────── */
+  .divider {
+    display: flex; align-items: center; gap: 12px; margin: 24px 0; color: var(--text-dim);
+    font-size: 10px; letter-spacing: .2em;
+  }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  /* ── LOADING OVERLAY ─────────────────────────────── */
+  .overlay {
+    position: absolute; inset: 0; background: rgba(8,12,16,.85); display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    z-index: 50; font-size: 12px; letter-spacing: .15em; color: var(--accent);
+  }
+  .overlay.show { display: flex; animation: fadeIn .2s ease; }
+  .overlay-spinner {
+    width: 32px; height: 32px; border: 2px solid rgba(0,229,255,.15);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+  }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,229,255,.2);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── YUBIKEY ANIMATION ─────────────────────────────── */
+  .yubikey-icon {
+    width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 50%;
+    background: rgba(0,229,255,0.1); display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(0,229,255,0.3); animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(0,229,255,0.4); }
+    70% { box-shadow: 0 0 0 15px rgba(0,229,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,229,255,0); }
+  }
+  .hidden-otp { opacity: 0; position: absolute; top: -9999px; }
+
+  /* ── OTP DISPLAY ────────────────────────────────── */
+  .otp-panel { text-align: center; padding: 8px 0 16px; }
+  .otp-label { font-size: 10px; letter-spacing: .25em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 18px; }
+  .otp-code {
+    font-family: var(--sans); font-size: 52px; font-weight: 800; letter-spacing: .18em;
+    color: var(--accent2); text-shadow: var(--glow2); line-height: 1; margin-bottom: 20px;
+    transition: opacity .2s; cursor: pointer; user-select: all;
+  }
+  .otp-code.refreshing { opacity: .3; }
+  .otp-code:hover { text-shadow: 0 0 30px rgba(0,255,157,.5); }
+  .timer-bar-wrap { height: 2px; background: var(--border); margin-bottom: 10px; overflow: hidden; }
+  .timer-bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width 1s linear, background .5s; }
+  .timer-bar.urgent { background: linear-gradient(90deg, var(--danger), #ff8c42); }
+  .timer-text { font-size: 11px; color: var(--text-dim); letter-spacing: .12em; }
+  .timer-text span { color: var(--text); }
+  .acc-badge {
+    display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.04);
+    border: 1px solid var(--border); padding: 6px 12px; font-size: 12px; color: var(--text-dim);
+    margin-bottom: 24px; letter-spacing: .08em;
+  }
+  .acc-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 6px var(--accent2);
+    animation: pulse 2s infinite;
+  }
+  .copy-hint { font-size: 10px; color: var(--text-dim); letter-spacing: .1em; margin-top: 12px; }
+  .copy-hint.copied { color: var(--accent2); }
+
+  /* ── ACCOUNTS LIST ──────────────────────────────── */
+  .account-list {
+    max-height: 250px;
+    overflow-y: auto;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+    padding: 8px;
+    background: rgba(0,0,0,0.2);
+  }
+  .account-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .account-item:last-child { border-bottom: none; }
+  .account-name {
+    font-size: 14px;
+    color: var(--text);
+  }
+  .account-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .account-btn {
+    padding: 6px 10px;
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .account-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .account-btn.active { border-color: var(--accent2); color: var(--accent2); }
+  .account-btn.del:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── NAV PILLS (MANAGER MODE) ───────────────────── */
+  .nav-pills {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+  }
+  .nav-pill {
+    flex: 1;
+    text-align: center;
+    padding: 10px;
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  .nav-pill:hover { color: var(--accent); }
+  .nav-pill.active {
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent);
+    background: rgba(0,229,255,0.05);
+  }
+
+  .footer { text-align: center; margin-top: 24px; font-size: 10px; color: var(--text-dim); letter-spacing: .14em; }
+  .footer a { color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--border); cursor: pointer; transition: color .2s; }
+  .footer a:hover { color: var(--accent); }
 </style>
 </head>
-
 <body>
-<div class="app">
+
+<div class="grid-bg"></div>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<div class="wrapper">
   <div class="card">
-    <div class="otp-value" id="otp-display">
-      <span class="dim">------</span>
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+
+    <div class="overlay" id="overlay">
+      <div class="overlay-spinner"></div>
+      <span id="overlay-msg">AUTHENTICATING</span>
     </div>
 
-    <div class="meta">
-      <div>Seconds left: <span id="seconds-left">–</span></div>
-      <div>Unix: <span id="now-unix">–</span></div>
+    <div class="header">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          <circle cx="12" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+        </svg>
+      </div>
+      <div class="title">SecureKey</div>
+      <div class="subtitle">Identity Hub</div>
     </div>
 
-    <div class="progress-bar">
-      <div class="progress-inner" id="progress-inner"></div>
+    <!-- ── STEP 0: Landing ── -->
+    <div class="step active" id="step-landing">
+      <div class="msg" id="landing-msg"></div>
+      <button class="btn" onclick="setStep('login')">
+        <span>Simulation Mode (Test Login)</span>
+      </button>
+      <div class="divider"></div>
+      <button class="btn" onclick="setStep('manager-codes'); startPolling();">
+        <span>Device Manager</span>
+      </button>
     </div>
 
-    <button id="btn-refresh">Refresh</button>
-  </div>
+    <!-- ── STEP 1: Login (Simulation) ── -->
+    <div class="step" id="step-login">
+      <div class="msg" id="login-msg"></div>
+      <div class="field">
+        <label>User ID</label>
+        <input type="text" id="userid" placeholder="enter user id" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="enter password" autocomplete="current-password" />
+      </div>
+      <button class="btn" id="login-btn" onclick="doLogin()">
+        <span>Authenticate →</span>
+      </button>
+      <div class="divider">or</div>
+      <button class="btn danger" onclick="setStep('landing')">
+        <span>← Back</span>
+      </button>
+    </div>
+
+    <!-- ── STEP 1.5: Hardware Auth (Simulation) ── -->
+    <div class="step" id="step-hw-auth">
+      <div class="msg" id="hw-msg"></div>
+      <div style="text-align:center; padding: 12px 0;">
+        <div class="yubikey-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <div style="color: var(--accent); font-weight: 500; font-size: 14px; margin-bottom: 8px;">Hardware Key Required</div>
+        <div style="color: #64748b; font-size: 12px; line-height: 1.5; margin-bottom: 16px;">
+          Press the <strong>BOOT button</strong> on your ESP32, or enter the 6-digit OTP code below:
+        </div>
+      </div>
+      <form onsubmit="handleHardwareAuth(event)">
+        <div class="field" style="margin-bottom: 12px;">
+          <input type="text" id="hw-otp-input" placeholder="Enter 6-digit OTP" maxlength="6" style="text-align:center; font-size: 22px; letter-spacing: 0.25em; font-weight: bold; color: var(--accent2);" autocomplete="off" />
+        </div>
+        <button type="submit" class="btn" style="margin-bottom: 10px;">
+          <span>Verify OTP →</span>
+        </button>
+      </form>
+      <button class="btn" onclick="autoAuthFromSerial()" style="border-color: var(--accent2); color: var(--accent2); margin-bottom: 10px;">
+        <span>⚡ Auto-Verify via Serial Key</span>
+      </button>
+      <div style="font-size: 10px; color: var(--text-dim); text-align: center; margin-bottom: 14px; line-height: 1.4;">
+        Note: Close Arduino Serial Monitor so the server can access COM15.
+      </div>
+      <button class="btn danger" onclick="setStep('landing')">
+        <span>Cancel</span>
+      </button>
+    </div>
+
+    <!-- ── STEP 2: Vault Success (Simulation) ── -->
+    <div class="step" id="step-vault">
+      <div class="otp-panel">
+        <div style="text-align:center; color:#10b981; margin-bottom:10px; font-weight:bold;">[ SECURE VAULT ACCESS GRANTED ]</div>
+        <div class="otp-label">Current One-Time Password</div>
+        <div class="acc-badge">
+          <div class="dot"></div>
+          <span id="vault-acc-name">—</span>
+        </div>
+        <div class="otp-code" id="vault-otp-display" title="Click to copy" onclick="copyOtp()">------</div>
+        <div class="timer-bar-wrap">
+          <div class="timer-bar" id="vault-timer-bar" style="width:100%"></div>
+        </div>
+        <div class="timer-text">Refreshes in <span id="vault-timer-val">—</span>s</div>
+        <div class="copy-hint" id="copy-hint">click code to copy</div>
+      </div>
+      <button class="btn danger" onclick="setStep('landing'); stopPolling();">
+        <span>Lock &amp; Logout</span>
+      </button>
+    </div>
+
+    <!-- ── DEVICE MANAGER NAV ── -->
+    <div id="manager-nav" style="display:none;">
+      <div class="nav-pills">
+        <div class="nav-pill" id="nav-codes" onclick="setStep('manager-codes')">Live Codes</div>
+        <div class="nav-pill" id="nav-accs" onclick="setStep('manager-accounts')">Accounts</div>
+        <div class="nav-pill" id="nav-cfg" onclick="setStep('manager-settings')">Settings</div>
+      </div>
+    </div>
+
+    <!-- ── STEP: Manager Codes ── -->
+    <div class="step" id="step-manager-codes">
+      <div class="msg" id="mgr-otp-msg"></div>
+      <div class="otp-panel">
+        <div class="otp-label">Current One-Time Password</div>
+        <div class="acc-badge">
+          <div class="dot"></div>
+          <span id="mgr-acc-name">—</span>
+        </div>
+        <div class="otp-code" id="mgr-otp-display" title="Click to copy" onclick="copyOtp()">------</div>
+        <div class="timer-bar-wrap">
+          <div class="timer-bar" id="mgr-timer-bar" style="width:100%"></div>
+        </div>
+        <div class="timer-text">Refreshes in <span id="mgr-timer-val">—</span>s</div>
+      </div>
+      <button class="btn" onclick="typeOtp()" id="type-btn">
+        <span>Type via USB Keyboard</span>
+      </button>
+      <div style="height:12px"></div>
+      <button class="btn danger" onclick="setStep('landing'); stopPolling();">
+        <span>← Exit Manager</span>
+      </button>
+    </div>
+
+    <!-- ── STEP: Manager Accounts ── -->
+    <div class="step" id="step-manager-accounts">
+      <div class="msg" id="mgr-acc-msg"></div>
+      <div class="account-list" id="account-list">
+        <div style="text-align:center; padding: 20px; color: var(--text-dim); font-size:12px;">Loading accounts...</div>
+      </div>
+      <div style="border-top: 1px solid var(--border); padding-top: 16px;">
+        <div style="font-size: 11px; color: var(--accent); margin-bottom:12px; letter-spacing: .1em;">ADD NEW ACCOUNT</div>
+        <div class="field" style="margin-bottom:10px;">
+          <input type="text" id="new-acc-name" placeholder="Account Name (e.g. GitHub)" maxlength="16" />
+        </div>
+        <div class="field" style="margin-bottom:10px;">
+          <input type="text" id="new-acc-secret" placeholder="Base32 Secret (e.g. JBSWY3...)" />
+        </div>
+        <button class="btn" onclick="addAccount()">
+          <span>Inject into ESP32</span>
+        </button>
+      </div>
+      <div style="height:12px"></div>
+      <button class="btn danger" onclick="setStep('landing'); stopPolling();">
+        <span>← Exit Manager</span>
+      </button>
+    </div>
+
+    <!-- ── STEP: Manager Settings ── -->
+    <div class="step" id="step-manager-settings">
+      <div class="msg" id="cfg-msg"></div>
+      <div class="field">
+        <label>Device PIN (4–12 digits)</label>
+        <input type="password" id="cfg-pin" placeholder="leave blank to keep current" />
+      </div>
+      <div class="field">
+        <label>Server URL</label>
+        <input type="text" id="cfg-server" placeholder="http://localhost:8000" />
+      </div>
+      <button class="btn" onclick="saveConfig()">
+        <span>Save &amp; Sync Time</span>
+      </button>
+      <div style="height:12px"></div>
+      <button class="btn danger" onclick="setStep('landing'); stopPolling();">
+        <span>← Exit Manager</span>
+      </button>
+    </div>
+
+  </div><!-- .card -->
 </div>
 
 <script>
-/* ==============================
-   GLOBAL STATE
-============================== */
-let otpTimer = null;
-let otpAnchorPerf = 0;
-let otpAnchorLeft = 0;
-const OTP_PERIOD = 30;
+// ═══════════════════════════════════════════════════
+//  CONFIG & STATE
+// ═══════════════════════════════════════════════════
+const USERS = { "admin":  "admin123" };
+let cfg = { server: localStorage.getItem('sk_server') || 'http://localhost:8000' };
 
-/* ==============================
-   DOM
-============================== */
-const otpDisplayEl = document.getElementById("otp-display");
-const secondsLeftEl = document.getElementById("seconds-left");
-const nowUnixEl = document.getElementById("now-unix");
-const progressInnerEl = document.getElementById("progress-inner");
-const btnRefresh = document.getElementById("btn-refresh");
+let otpInterval  = null;
+let timerInterval = null;
+let currentOtp   = '';
+let secondsLeft  = 30;
+let currentStepMode = ''; // 'vault' or 'manager'
 
-/* ==============================
-   API
-============================== */
-async function fetchJSON(url) {
-  const res = await fetch(url, {
-    headers: { "Content-Type":"application/json" }
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error("HTTP error");
-  return data;
+// ═══════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════
+async function apiFetch(path, opts = {}) {
+  const url = cfg.server.replace(/\/$/, '') + path;
+  const res  = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
-/* ==============================
-   OTP ENGINE (NO DRIFT)
-============================== */
-function startOtpEngine(secondsLeft) {
-  if (typeof secondsLeft !== "number") return;
+function showMsg(id, text, type = 'error') {
+  const el = document.getElementById(id); el.textContent = text; el.className = `msg show ${type}`;
+}
+function clearMsg(id) {
+  const el = document.getElementById(id); el.className = 'msg'; el.textContent = '';
+}
+function showOverlay(msg) {
+  document.getElementById('overlay-msg').textContent = msg; document.getElementById('overlay').classList.add('show');
+}
+function hideOverlay() { document.getElementById('overlay').classList.remove('show'); }
 
-  otpAnchorPerf = performance.now();
-  otpAnchorLeft = secondsLeft;
+function setStep(name) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + name).classList.add('active');
+  
+  const mgrNav = document.getElementById('manager-nav');
+  if (name.startsWith('manager-')) {
+    mgrNav.style.display = 'block';
+    document.querySelectorAll('.nav-pill').forEach(p => p.classList.remove('active'));
+    if (name === 'manager-codes') document.getElementById('nav-codes').classList.add('active');
+    if (name === 'manager-accounts') {
+      document.getElementById('nav-accs').classList.add('active');
+      loadAccounts();
+    }
+    if (name === 'manager-settings') {
+      document.getElementById('nav-cfg').classList.add('active');
+      document.getElementById('cfg-server').value = cfg.server;
+    }
+    currentStepMode = 'manager';
+  } else {
+    mgrNav.style.display = 'none';
+    if (name === 'vault') currentStepMode = 'vault';
+    else currentStepMode = '';
+  }
+}
 
-  if (otpTimer) clearInterval(otpTimer);
+// ═══════════════════════════════════════════════════
+//  SIMULATION PATH (LOGIN)
+// ═══════════════════════════════════════════════════
+async function doLogin() {
+  const uid  = document.getElementById('userid').value.trim();
+  const pass = document.getElementById('password').value;
+  clearMsg('login-msg');
+  if (!USERS[uid] || USERS[uid] !== pass) { showMsg('login-msg', '[ ERROR ] Invalid user ID or password.'); return; }
 
-  updateOtpUI(secondsLeft);
+  showOverlay('AUTHENTICATING');
+  try {
+    const statusData = await apiFetch('/api/status');
+    const status = statusData.status || {};
+    if (status.locked) { showMsg('login-msg', '[ ERROR ] Device locked.', 'info'); hideOverlay(); return; }
+    if (!status.synced) {
+      showOverlay('SYNCING TIME');
+      const syncResult = await apiFetch('/api/sync', { method: 'POST' });
+      if (!syncResult.ok) throw new Error('Time sync failed.');
+    }
+    showOverlay('AUTHENTICATING');
+    await new Promise(r => setTimeout(r, 600));
+    hideOverlay();
+    setStep('hw-auth');
+    const hwInput = document.getElementById('hw-otp-input');
+    setTimeout(() => { hwInput.value = ''; hwInput.focus(); }, 50);
+  } catch (err) {
+    hideOverlay(); showMsg('login-msg', `[ ERROR ] ${err.message}`);
+  }
+}
 
-  otpTimer = setInterval(() => {
-    const elapsed =
-      Math.floor((performance.now() - otpAnchorPerf) / 1000);
+document.addEventListener('click', () => {
+  if (document.getElementById('step-hw-auth').classList.contains('active')) {
+    document.getElementById('hw-otp-input').focus();
+  }
+});
 
-    const left = otpAnchorLeft - elapsed;
+async function handleHardwareAuth(e) {
+  if (e) e.preventDefault();
+  const otp = document.getElementById('hw-otp-input').value.trim();
+  if (!otp) {
+    showMsg('hw-msg', '[ INFO ] Please enter the 6-digit OTP or click Auto-Verify.');
+    return;
+  }
+  showOverlay('VERIFYING HARDWARE TOKEN');
+  try {
+    const statusData = await apiFetch('/api/status');
+    const status = statusData.status || {};
+    if (!status.synced) {
+      throw new Error(statusData.error || 'Device not ready. Please close Arduino Serial Monitor.');
+    }
+    await new Promise(r => setTimeout(r, 600));
+    showOverlay('SUCCESSFULLY OTP FETCHED');
+    await new Promise(r => setTimeout(r, 800));
+    hideOverlay();
+    document.getElementById('hw-otp-input').value = '';
+    fetchAndShowOtp(status);
+    setStep('vault');
+    startPolling();
+  } catch (err) {
+    hideOverlay(); showMsg('hw-msg', '[ ERROR ] ' + err.message);
+    document.getElementById('hw-otp-input').value = ''; document.getElementById('hw-otp-input').focus();
+  }
+}
 
-    if (left <= 0) {
-      clearInterval(otpTimer);
-      otpTimer = null;
-      refreshStatus(); // exact rollover
+async function autoAuthFromSerial() {
+  clearMsg('hw-msg');
+  showOverlay('FETCHING KEY FROM SERIAL');
+  try {
+    const statusData = await apiFetch('/api/status');
+    const status = statusData.status || {};
+    if (!status.synced || !status.current_otp) {
+      throw new Error(statusData.error || 'Device not ready. Close Arduino Serial Monitor so server can open COM15.');
+    }
+    const otp = (status.current_otp || '').toString().padStart(6, '0');
+    document.getElementById('hw-otp-input').value = otp;
+    showOverlay('AUTHENTICATED: ' + otp);
+    await new Promise(r => setTimeout(r, 700));
+    hideOverlay();
+    document.getElementById('hw-otp-input').value = '';
+    fetchAndShowOtp(status);
+    setStep('vault');
+    startPolling();
+  } catch (err) {
+    hideOverlay();
+    showMsg('hw-msg', '[ ERROR ] ' + err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  MANAGER PATH (ACCOUNTS)
+// ═══════════════════════════════════════════════════
+async function loadAccounts() {
+  const list = document.getElementById('account-list');
+  list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-dim); font-size:12px;">Loading...</div>';
+  try {
+    const res = await apiFetch('/api/accounts');
+    if (!res.ok) throw new Error('Failed to load accounts');
+    const accs = res.accounts || [];
+    if (accs.length === 0) {
+      list.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-dim); font-size:12px;">No accounts on device.</div>';
       return;
     }
-
-    updateOtpUI(left);
-  }, 1000);
-}
-
-function updateOtpUI(left) {
-  secondsLeftEl.textContent = left;
-  progressInnerEl.style.transform =
-    `scaleX(${1 - left / OTP_PERIOD})`;
-}
-
-/* ==============================
-   RENDER
-============================== */
-function renderStatus(s) {
-  if (!s) return;
-
-  nowUnixEl.textContent = s.now_unix ?? "–";
-
-  if (s.current_otp && s.current_otp.length === 6) {
-    otpDisplayEl.innerHTML =
-      `<span>${s.current_otp.slice(0,3)}</span>
-       <span class="dim">${s.current_otp.slice(3)}</span>`;
-  } else {
-    otpDisplayEl.innerHTML =
-      `<span class="dim">------</span>`;
-  }
-
-  if (typeof s.seconds_left === "number") {
-    startOtpEngine(s.seconds_left);
+    list.innerHTML = '';
+    accs.forEach((a, idx) => {
+      if (!a.present || a.present === '0') return; // Empty slot
+      const isAct = (a.active === '1' || a.active === true);
+      const div = document.createElement('div');
+      div.className = 'account-item';
+      div.innerHTML = `
+        <div class="account-name">${a.name} ${isAct ? '<span style="color:var(--accent2); font-size:10px;">(ACTIVE)</span>' : ''}</div>
+        <div class="account-actions">
+          ${!isAct ? `<button class="account-btn" onclick="setActiveAccount(${idx})">Set Active</button>` : ''}
+          <button class="account-btn del" onclick="deleteAccount(${idx})">Del</button>
+        </div>
+      `;
+      list.appendChild(div);
+    });
+  } catch (err) {
+    showMsg('mgr-acc-msg', `[ ERROR ] ${err.message}`);
   }
 }
 
-/* ==============================
-   BACKEND SYNC
-============================== */
-async function refreshStatus() {
+async function addAccount() {
+  const name = document.getElementById('new-acc-name').value.trim();
+  const secret = document.getElementById('new-acc-secret').value.trim();
+  if (!name || !secret) { showMsg('mgr-acc-msg', '[ ERROR ] Name and Secret required.'); return; }
+  showOverlay('INJECTING ACCOUNT');
   try {
-    const res = await fetchJSON("/api/status");
-    if (res.ok) renderStatus(res.status);
-  } catch (e) {
-    console.error("Status error:", e.message);
+    // find first empty slot
+    const res = await apiFetch('/api/accounts');
+    const accs = res.accounts || [];
+    let emptyIdx = -1;
+    for (let i=0; i<10; i++) {
+      if (!accs[i] || accs[i].present === '0' || !accs[i].present) { emptyIdx = i; break; }
+    }
+    if (emptyIdx === -1) throw new Error('Device full (max 10 accounts)');
+    
+    await apiFetch('/api/account', { method: 'POST', body: JSON.stringify({ index: emptyIdx, name, secret }) });
+    document.getElementById('new-acc-name').value = '';
+    document.getElementById('new-acc-secret').value = '';
+    hideOverlay();
+    loadAccounts();
+    showMsg('mgr-acc-msg', '[ OK ] Account injected into hardware.', 'ok');
+    setTimeout(() => clearMsg('mgr-acc-msg'), 3000);
+  } catch (err) {
+    hideOverlay(); showMsg('mgr-acc-msg', `[ ERROR ] ${err.message}`);
   }
 }
 
-/* ==============================
-   EVENTS
-============================== */
-btnRefresh.addEventListener("click", refreshStatus);
+async function deleteAccount(idx) {
+  if (!confirm('Delete this account from the hardware key?')) return;
+  showOverlay('DELETING');
+  try {
+    await apiFetch(`/api/account/${idx}`, { method: 'DELETE' });
+    hideOverlay();
+    loadAccounts();
+  } catch (err) { hideOverlay(); showMsg('mgr-acc-msg', `[ ERROR ] ${err.message}`); }
+}
 
-/* ==============================
-   INIT
-============================== */
-refreshStatus();
+async function setActiveAccount(idx) {
+  showOverlay('SETTING ACTIVE');
+  try {
+    await apiFetch('/api/active', { method: 'POST', body: JSON.stringify({ index: idx }) });
+    hideOverlay();
+    loadAccounts();
+  } catch (err) { hideOverlay(); showMsg('mgr-acc-msg', `[ ERROR ] ${err.message}`); }
+}
+
+// ═══════════════════════════════════════════════════
+//  OTP POLLING & DISPLAY
+// ═══════════════════════════════════════════════════
+let isFetchingOtp = false;
+
+async function fetchAndShowOtp(statusOverride = null) {
+  if (!currentStepMode) return; // Not on a screen that needs it
+  if (isFetchingOtp && !statusOverride) return;
+  isFetchingOtp = true;
+  try {
+    const data = statusOverride ? { status: statusOverride } : await apiFetch('/api/status');
+    const status = data.status || {};
+    
+    const pfx = currentStepMode === 'vault' ? 'vault-' : 'mgr-';
+    const msgId = currentStepMode === 'vault' ? null : 'mgr-otp-msg';
+
+    if (status.locked) { if(msgId) showMsg(msgId, '[ WARN ] Device locked.', 'error'); return; }
+    if (!status.synced || !status.active_acc_present) {
+      document.getElementById(pfx+'otp-display').textContent = '- - - - - -';
+      if(msgId) showMsg(msgId, '[ WARN ] Device not ready.', 'info');
+      return;
+    }
+    if(msgId) clearMsg(msgId);
+
+    const otp  = (status.current_otp || '').toString().padStart(6, '0');
+    const left = parseInt(status.seconds_left);
+    const name = status.active_name || 'Account';
+
+    currentOtp = otp;
+    secondsLeft = isNaN(left) ? 30 : left;
+
+    document.getElementById(pfx+'acc-name').textContent = name;
+    document.getElementById(pfx+'otp-display').textContent = otp.slice(0,3) + ' ' + otp.slice(3);
+    updateTimerBar(secondsLeft, pfx);
+
+  } catch (err) {
+    if (currentStepMode === 'manager') showMsg('mgr-otp-msg', `[ ERROR ] ${err.message}`, 'error');
+  } finally {
+    isFetchingOtp = false;
+  }
+}
+
+function updateTimerBar(left, pfx) {
+  const pct = (left / 30) * 100;
+  const bar = document.getElementById(pfx+'timer-bar');
+  bar.style.width = pct + '%';
+  bar.className = 'timer-bar' + (left <= 7 ? ' urgent' : '');
+  document.getElementById(pfx+'timer-val').textContent = left;
+}
+
+function tickTimer() {
+  if (!currentStepMode) return;
+  const pfx = currentStepMode === 'vault' ? 'vault-' : 'mgr-';
+  if (secondsLeft > 0) {
+    secondsLeft--;
+    updateTimerBar(secondsLeft, pfx);
+  }
+  if (secondsLeft <= 0) {
+    const el = document.getElementById(pfx+'otp-display');
+    el.classList.add('refreshing');
+    fetchAndShowOtp().finally(() => {
+      el.classList.remove('refreshing');
+    });
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  otpInterval = setInterval(fetchAndShowOtp, 5000);
+  timerInterval = setInterval(tickTimer, 1000);
+  fetchAndShowOtp(); // initial fetch
+}
+function stopPolling() {
+  if (otpInterval) clearInterval(otpInterval);
+  if (timerInterval) clearInterval(timerInterval);
+  otpInterval = null; timerInterval = null;
+}
+
+function copyOtp() {
+  if (!currentOtp) return;
+  navigator.clipboard.writeText(currentOtp).then(() => {
+    // Only applies to vault view hint for now, or could handle both
+  });
+}
+
+async function typeOtp() {
+  try {
+    await apiFetch('/api/type-otp', { method: 'POST' });
+  } catch (err) {}
+}
+
+async function saveConfig() {
+  const server = document.getElementById('cfg-server').value.trim();
+  const pin = document.getElementById('cfg-pin').value.trim();
+  clearMsg('cfg-msg');
+  if (!server) return;
+  cfg.server = server; localStorage.setItem('sk_server', server);
+  showOverlay('CONNECTING');
+  try {
+    if (pin.length >= 4) await apiFetch('/api/set-pin', { method: 'POST', body: JSON.stringify({ pin }) });
+    const syncRes = await apiFetch('/api/sync', { method: 'POST' });
+    hideOverlay();
+    if (syncRes.ok) showMsg('cfg-msg', '[ OK ] Config saved & Synced.', 'ok');
+    else showMsg('cfg-msg', '[ WARN ] Saved but sync failed.', 'info');
+  } catch (err) { hideOverlay(); showMsg('cfg-msg', `[ ERROR ] ${err.message}`); }
+}
 </script>
 </body>
 </html>

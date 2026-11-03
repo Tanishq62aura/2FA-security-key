@@ -14,15 +14,15 @@ from fastapi.middleware.cors import CORSMiddleware
 # CONFIG
 # =====================
 BAUD_RATE = 115200
-PREFERRED_PORT = "COM10" # Set to None to auto-detect 
+PREFERRED_PORT = "COM15"
 
 ESP32_VID = 0x303A
 ESP32_PID = 0x1001
 
 SYNC_KEY_HEX = "00112233445566778899AABBCCDDEEFF00112233"
 
-SERIAL_TIMEOUT = 1
-COMMAND_TIMEOUT = 2.5
+SERIAL_TIMEOUT = 0.08
+COMMAND_TIMEOUT = 0.8
 
 # =====================
 # SERIAL TRANSPORT
@@ -35,21 +35,33 @@ class SerialTransport:
         self.last_error: Optional[str] = None
 
     def _find_port(self) -> Optional[str]:
+        # 1. Check preferred port if physically present
+        if PREFERRED_PORT:
+            for p in list_ports.comports():
+                if p.device == PREFERRED_PORT:
+                    return p.device
+        # 2. Check VID / PID match
         for p in list_ports.comports():
             if p.vid == ESP32_VID and p.pid == ESP32_PID:
                 return p.device
+        # 3. Check common ESP32 / USB-serial chip descriptions
         for p in list_ports.comports():
-            if "esp32" in (p.description or "").lower():
+            desc = (p.description or "").lower()
+            if any(k in desc for k in ["esp32", "ch343", "ch340", "cp210", "ftdi"]):
                 return p.device
+        # 4. If only one serial port exists, use it
+        ports = list_ports.comports()
+        if len(ports) == 1:
+            return ports[0].device
         return None
 
     def connect(self) -> None:
         if self.ser and self.ser.is_open:
             return
 
-        port = PREFERRED_PORT or self._find_port()
+        port = self._find_port() or PREFERRED_PORT
         if not port:
-            raise RuntimeError("ESP32 not found")
+            raise RuntimeError("ESP32 not found. Please connect your device.")
 
         self.ser = serial.Serial(
             port,
@@ -69,16 +81,17 @@ class SerialTransport:
         self.ser = None
         self.port = None
 
-    # 🔑 THIS IS THE CRITICAL FIX
     def _get_serial(self) -> serial.Serial:
         self.connect()
         assert self.ser is not None
         return self.ser
 
-    def send(self, cmd: str, wait: float = COMMAND_TIMEOUT) -> List[str]:
+    def send(self, cmd: str, wait: float = COMMAND_TIMEOUT, stop_on: Optional[List[str]] = None) -> List[str]:
         with self.lock:
             try:
                 ser = self._get_serial()
+                # Clear stale background broadcast lines from the input buffer
+                ser.reset_input_buffer()
 
                 ser.write((cmd + "\n").encode())
                 ser.flush()
@@ -89,15 +102,21 @@ class SerialTransport:
                 while time.time() < end_time:
                     raw = ser.readline()
                     if not raw:
+                        if lines and (not stop_on or time.time() + 0.1 >= end_time):
+                            break
                         continue
 
                     txt = raw.decode(errors="ignore").strip("\x00\r\n ")
-                    if len(txt) < 3:
+                    if len(txt) < 2:
                         continue
-                    if txt.startswith(("READY", "TIME:", "STATUS:")):
+                    if txt.startswith(("READY", "TIME:")) and not cmd.startswith("TIME"):
                         continue
 
                     lines.append(txt)
+
+                    # Return immediately as soon as expected termination marker is seen
+                    if stop_on and any(s in txt for s in stop_on):
+                        break
 
                 return lines
 
@@ -128,49 +147,63 @@ class ESP32Service:
         key = bytes.fromhex(SYNC_KEY_HEX)
         mac = hmac.new(key, msg, hashlib.sha1).hexdigest().upper()
 
-        resp = transport.send(f"TSYNC:{unix}:{nonce}:{mac}", wait=3)
+        resp = transport.send(
+            f"TSYNC:{unix}:{nonce}:{mac}",
+            wait=1.2,
+            stop_on=["TSYNC_OK", "TSYNC_FAIL", "ERR:"]
+        )
         return {"ok": any("TSYNC_OK" in r for r in resp), "raw": resp}
 
     def status(self) -> Dict[str, Any]:
-        resp = transport.send("STATUS?")
+        resp = transport.send(
+            "STATUS?",
+            wait=0.4,
+            stop_on=["SECONDS_LEFT:", "ERR:LOCKED", "ACTIVE_ACC_PRESENT:NO", "SYNCED:NO"]
+        )
 
         data: Dict[str, Any] = {
             "synced": False,
-            "locked": True,
+            "locked": False,
             "active_idx": None,
             "active_name": None,
             "now_unix": None,
             "current_otp": None,
             "seconds_left": None,
+            "active_acc_present": False,
             "raw": resp,
         }
         for r in resp:
-            if r.startswith("SYNCED:"):
+            if "ERR:LOCKED" in r:
+                data["locked"] = True
+            elif r.startswith("SYNCED:"):
                 data["synced"] = "YES" in r
-
+            elif r.startswith("ACTIVE_ACC_PRESENT:"):
+                data["active_acc_present"] = "YES" in r
             elif r.startswith("ACTIVE_IDX:"):
-                data["active_idx"] = int(r.split(":", 1)[1])
-
+                try:
+                    data["active_idx"] = int(r.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
             elif r.startswith("ACTIVE_NAME:"):
                 data["active_name"] = r.split(":", 1)[1].strip()
             elif r.startswith("NOW_UNIX:"):
-                data["now_unix"] = int(r.split(":", 1)[1])
+                try:
+                    data["now_unix"] = int(r.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
             elif r.startswith("CURRENT_OTP:"):
                 data["current_otp"] = r.split(":", 1)[1].strip()
-
             elif r.startswith("SECONDS_LEFT:"):
-                data["seconds_left"] = int(r.split(":", 1)[1])
-
-        lock = transport.send("LOCKED?")
-        for r in lock:
-            if r.startswith("LOCKED:"):
-                data["locked"] = "YES" in r
+                try:
+                    data["seconds_left"] = int(r.split(":", 1)[1])
+                except (ValueError, IndexError):
+                    pass
 
         return data
 
 
     def accounts(self) -> List[Dict[str, str]]:
-        resp = transport.send("LISTACC")
+        resp = transport.send("LISTACC", wait=0.8, stop_on=["ACC:9", "ERR:"])
         accs: List[Dict[str, str]] = []
 
         for r in resp:
@@ -188,31 +221,31 @@ class ESP32Service:
         return accs
 
     def set_account(self, idx: int, name: str, secret: str) -> Dict[str, Any]:
-        resp = transport.send(f"SETACC:{idx}:{name}:{secret}", wait=3)
+        resp = transport.send(f"SETACC:{idx}:{name}:{secret}", wait=1.2, stop_on=["ACC_SET_OK", "ERR:"])
         return {"ok": "ACC_SET_OK" in "".join(resp), "raw": resp}
 
     def set_active(self, idx: int) -> Dict[str, Any]:
-        resp = transport.send(f"SETACTIVE:{idx}")
+        resp = transport.send(f"SETACTIVE:{idx}", wait=0.4, stop_on=["ACTIVE_SET_OK", "ERR:"])
         return {"ok": "ACTIVE_SET_OK" in "".join(resp)}
 
     def delete_account(self, idx: int) -> Dict[str, Any]:
-        resp = transport.send(f"DELACC:{idx}")
+        resp = transport.send(f"DELACC:{idx}", wait=0.4, stop_on=["ACC_DEL_OK", "ERR:"])
         return {"ok": "ACC_DEL_OK" in "".join(resp)}
 
     def set_pin(self, pin: str) -> Dict[str, Any]:
-        resp = transport.send(f"SETPIN:{pin}")
+        resp = transport.send(f"SETPIN:{pin}", wait=0.4, stop_on=["PIN_SET_OK", "ERR:"])
         return {"ok": "PIN_SET_OK" in "".join(resp)}
 
     def unlock(self, pin: str) -> Dict[str, Any]:
-        resp = transport.send(f"UNLOCK:{pin}")
+        resp = transport.send(f"UNLOCK:{pin}", wait=0.5, stop_on=["UNLOCK_OK", "UNLOCK_FAIL", "ERR:"])
         return {"ok": "UNLOCK_OK" in "".join(resp)}
 
     def lock(self) -> Dict[str, Any]:
-        resp = transport.send("LOCK")
+        resp = transport.send("LOCK", wait=0.4, stop_on=["LOCKED", "ERR:"])
         return {"ok": "LOCKED" in "".join(resp)}
 
     def type_otp(self) -> Dict[str, Any]:
-        resp = transport.send("TYPEOTP")
+        resp = transport.send("TYPEOTP", wait=0.5, stop_on=["TYPE_OTP_SENT", "ERR:"])
         return {"ok": "TYPE_OTP_SENT" in "".join(resp)}
 
 
@@ -225,9 +258,9 @@ app = FastAPI(title="ESP32 Offline 2FA Server")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost", "http://127.0.0.1"],
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type"],
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 def response(data: Dict[str, Any]) -> JSONResponse:
@@ -240,15 +273,36 @@ def ui():
 
 @app.get("/api/status")
 def api_status():
-    return response({"ok": True, "status": svc.status()})
+    try:
+        return response({"ok": True, "status": svc.status()})
+    except Exception as e:
+        return response({
+            "ok": False,
+            "error": str(e),
+            "status": {
+                "synced": False,
+                "locked": True,
+                "active_acc_present": False,
+                "active_name": None,
+                "current_otp": None,
+                "seconds_left": None,
+                "error": str(e),
+            }
+        })
 
 @app.post("/api/sync")
 def api_sync():
-    return response(svc.sync_time())
+    try:
+        return response(svc.sync_time())
+    except Exception as e:
+        return response({"ok": False, "error": str(e)})
 
 @app.get("/api/accounts")
 def api_accounts():
-    return response({"ok": True, "accounts": svc.accounts()})
+    try:
+        return response({"ok": True, "accounts": svc.accounts()})
+    except Exception as e:
+        return response({"ok": False, "error": str(e), "accounts": []})
 
 @app.post("/api/account")
 def api_set_account(body: Dict[str, Any]):
@@ -279,3 +333,7 @@ def api_lock():
 @app.post("/api/type-otp")
 def api_type_otp():
     return response(svc.type_otp())
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("server:app", host="127.0.0.1", port=8000)

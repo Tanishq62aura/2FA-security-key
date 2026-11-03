@@ -1,29 +1,32 @@
 # send_time_secure.py
+import os
 import time
 import hmac
 import hashlib
 import serial
 
 # Change this if your COM port is different.
-SERIAL_PORT = "COM10"
+SERIAL_PORT = "COM15"
 BAUD_RATE = 115200
 
 # MUST MATCH firmware
 SYNC_KEY_HEX = "00112233445566778899AABBCCDDEEFF00112233"
 
+_used_nonces = set()  # In production, use a persistent store with expiry.
 
 def build_tsync_line() -> str:
     unix_time = int(time.time())
 
     # 32-bit random nonce
-    nonce_int = int.from_bytes(
-        hashlib.sha1(str(time.time()).encode()).digest()[:4], "big"
-    )
-    nonce_hex = f"{nonce_int:08X}"
+    while True:
+        nonce_hex = os.urandom(4).hex().upper()
+        if nonce_hex not in _used_nonces:
+            _used_nonces.add(nonce_hex)
+            break
 
     msg = f"{unix_time}:{nonce_hex}".encode("utf-8")
     key = bytes.fromhex(SYNC_KEY_HEX)
-    mac = hmac.new(key, msg, hashlib.sha1).hexdigest().upper()
+    mac = hmac.new(key, msg, digestmod=hashlib.sha1).hexdigest().upper()
 
     return f"TSYNC:{unix_time}:{nonce_hex}:{mac}\n"
 

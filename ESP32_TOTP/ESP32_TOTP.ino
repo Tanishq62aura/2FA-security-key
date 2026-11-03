@@ -13,7 +13,7 @@ USBHIDKeyboard Keyboard;
 // =======================================================
 
 // Hardware pins (EDIT THESE IF NEEDED)
-const int BUTTON_PIN   = -1;         // -1 = disabled. Or use e.g. GPIO0, 9, etc.
+const int BUTTON_PIN   = 0;         // 0 = BOOT button
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 48
 #endif
@@ -32,7 +32,7 @@ static const int MAX_ACCOUNTS = 10;
 static const int MAX_NAME_LEN = 16;
 
 // Long-press detection for button (ms)
-const uint32_t LONG_PRESS_MS = 600;
+const uint32_t LONG_PRESS_MS = 20;
 
 // =======================================================
 //  GLOBAL STATE
@@ -77,8 +77,34 @@ uint8_t activeAccount = 0;
 bool     btnPrev      = false;
 uint32_t btnDownMs    = 0;
 
+uint32_t greenUntil   = 0;
+
 // Suppress periodic TIME/STATUS broadcast while responding to commands
 static bool suppressBroadcast = false;
+
+
+#define MAX_SEEN_NONCES 16
+static uint32_t seenNonces[MAX_SEEN_NONCES];
+static int      seenNonceCount = 0;
+static uint64_t lastSyncUnix   = 0;
+
+bool isNonceSeen(uint32_t nonce) {
+  for (int i = 0; i < seenNonceCount; i++) {
+    if (seenNonces[i] == nonce) return true;
+  }
+  return false;
+}
+
+void recordNonce(uint32_t nonce) {
+  if (seenNonceCount < MAX_SEEN_NONCES) {
+    seenNonces[seenNonceCount++] = nonce;
+  } else {
+    // Ring buffer — evict oldest
+    memmove(seenNonces, seenNonces + 1,
+            (MAX_SEEN_NONCES - 1) * sizeof(uint32_t));
+    seenNonces[MAX_SEEN_NONCES - 1] = nonce;
+  }
+}
 
 // =======================================================
 //  HELPERS: Base32 / Hex
@@ -276,6 +302,31 @@ void handleSecureTimePacket(String line) {
 
   applyTimeSync(ts);
   Serial.println("TSYNC_OK");
+
+
+  if (ts < lastSyncUnix) {
+  Serial.println("ERR:TSYNC_REPLAY_TIME");
+  return;
+}
+
+int64_t drift = (int64_t)ts - (int64_t)(currentUnix());
+if (drift < -60 || drift > 60) {
+  Serial.println("ERR:TSYNC_WINDOW");
+  return;
+}
+
+// Parse nonce hex to uint32
+uint32_t nonceVal = (uint32_t)strtoul(nonceStr.c_str(), nullptr, 16);
+if (isNonceSeen(nonceVal)) {
+  Serial.println("ERR:TSYNC_REPLAY_NONCE");
+  return;
+}
+
+recordNonce(nonceVal);
+lastSyncUnix = ts;
+applyTimeSync(ts);
+
+
 }
 
 // =======================================================
@@ -651,6 +702,7 @@ bool typeOtpNow() {
 
   Serial.print("TYPE_OTP_SENT:");
   Serial.println(buf);
+  greenUntil = millis() + 1000; // Flash green for 1 second
   return true;
 }
 
@@ -707,6 +759,12 @@ void handleCommand(String line) {
   line.trim();
 
   // --- Time sync commands ---
+
+  if (deviceLocked){
+    Serial.println("ERR:LOCKED");
+    return  ;
+  }
+
   if (line.startsWith("TSYNC:")) {
     suppressBroadcast = true;
     handleSecureTimePacket(line);
@@ -959,31 +1017,38 @@ void handleButton() {
 // =======================================================
 
 void updateLed() {
-  if (LED_PIN < 0) return;
-
-  static uint32_t lastBlink = 0;
-  static bool ledState = false;
-
+#ifdef RGB_BUILTIN
   uint32_t nowMs = millis();
 
-  if (deviceLocked) {
-    // Slow blink when locked
-    if (nowMs - lastBlink > 600) {
-      lastBlink = nowMs;
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState ? HIGH : LOW);
-    }
+  if (nowMs < greenUntil) {
+    // OTP typed successfully (Green)
+    neopixelWrite(RGB_BUILTIN, 0, 30, 0);
   } else if (!timeSynced || !hasActiveAccount()) {
-    // Fast blink when not ready
+    // Inserted but not synced (Dim Red)
+    neopixelWrite(RGB_BUILTIN, 10, 0, 0);
+  } else {
+    // Synced and ready (Blue)
+    neopixelWrite(RGB_BUILTIN, 0, 0, 20);
+  }
+#else
+  // Fallback for non-RGB LEDs
+  if (LED_PIN < 0) return;
+  static uint32_t lastBlink = 0;
+  static bool ledState = false;
+  uint32_t nowMs = millis();
+
+  if (nowMs < greenUntil) {
+    digitalWrite(LED_PIN, HIGH);
+  } else if (!timeSynced || !hasActiveAccount()) {
     if (nowMs - lastBlink > 200) {
       lastBlink = nowMs;
       ledState = !ledState;
       digitalWrite(LED_PIN, ledState ? HIGH : LOW);
     }
   } else {
-    // Solid on when ready
     digitalWrite(LED_PIN, HIGH);
   }
+#endif
 }
 
 // =======================================================

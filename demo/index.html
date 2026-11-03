@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Portal | 2FA Hardware Demo</title>
+    <meta name="description" content="Demo login page for ESP32 hardware 2FA key.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-elements">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="container">
+        <div class="glass-card" id="login-card">
+            <div class="header">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+                <h1>Secure Login</h1>
+                <p>Enter your credentials to continue</p>
+            </div>
+
+            <form id="login-form">
+                <div class="input-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" placeholder="admin" required value="admin">
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" placeholder="••••••••" required value="password">
+                </div>
+                <button type="submit" class="btn primary-btn">Login</button>
+            </form>
+        </div>
+
+        <div class="glass-card hidden" id="otp-card">
+            <div class="header">
+                <div class="icon-pulse-container">
+                    <svg class="icon pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg>
+                </div>
+                <h1>Two-Factor Auth</h1>
+                <p>Press the button on your hardware key to enter the OTP.</p>
+            </div>
+
+            <form id="otp-form">
+                <div class="input-group otp-group">
+                    <input type="text" id="otp-input" class="otp-input" placeholder="000000" maxlength="6" autocomplete="off">
+                </div>
+                <div class="loader-container hidden" id="otp-loader">
+                    <div class="spinner"></div>
+                    <p>Verifying key...</p>
+                </div>
+            </form>
+            <button class="btn secondary-btn" id="back-btn">Back to Login</button>
+        </div>
+
+        <div class="glass-card hidden" id="success-card">
+            <div class="header">
+                <svg class="icon success-icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h1>Access Granted</h1>
+                <p>Hardware key verified successfully.</p>
+            </div>
+            <button class="btn primary-btn" id="reset-btn">Restart Demo</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
