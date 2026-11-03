@@ -1,151 +1,181 @@
 # ESP32-S3 Offline TOTP Key
 
-A secure, offline TOTP (Time-based One-Time Password) generator built on ESP32-S3 microcontroller. Features multi-account support, PIN-based locking, AES-CTR encrypted storage, USB HID keyboard emulation for typing OTPs, and a web-based management interface.
+A secure, offline TOTP (Time-based One-Time Password) generator built on the ESP32-S3 microcontroller. Features multi-account support, PIN-based locking, AES-CTR encrypted storage, USB HID keyboard emulation for typing OTPs, ultra-low latency real-time synchronization, and a modern cyber-themed web management interface.
+
+---
 
 ## Features
 
-- **TOTP Generation**: Implements RFC 6238 TOTP using HMAC-SHA1
-- **Multi-Account Support**: Store up to 10 TOTP accounts
-- **Encrypted Storage**: AES-CTR encryption for account secrets in ESP32 NVS
-- **PIN Lock**: 4-12 digit PIN with fail counter and lockout protection
-- **USB HID**: Emulates USB keyboard to type OTPs directly into applications
-- **Secure Time Sync**: HMAC-verified time synchronization over serial
-- **Web UI**: HTML/CSS/JS interface for account management and device control
-- **Serial API**: Python FastAPI server for communication with ESP32
-- **Hardware Integration**: Button for manual OTP typing, LED status indicator
+- **RFC 6238 TOTP Generation**: Standard 6-digit TOTP calculation using HMAC-SHA1 with 30-second rotating windows.
+- **Multi-Account Storage**: Store and switch between up to 10 independent TOTP accounts on-device.
+- **AES-CTR Encrypted Storage**: Account secrets are encrypted in ESP32 non-volatile storage (NVS) using keys derived from hardware-unique MAC attributes.
+- **PIN Lockout Protection**: 4–12 digit security PIN with SHA-256 salted hashing and lockout protection after 5 failed attempts.
+- **USB HID Keyboard Emulation**: Acts as a native USB keyboard to automatically type OTPs and press Enter into applications.
+- **Secure Time Synchronization**: Replay-resistant serial time synchronization using random nonces and HMAC-SHA1 verification.
+- **Instant Web Dashboard**: Fast HTML5/CSS3/JavaScript interface for account management, live countdown monitoring, and instant key injection.
+- **High-Performance Serial API**: Python FastAPI backend with sub-15ms early-return response handling and serial adapter auto-detection.
+- **Hardware Integration**: Onboard button trigger for manual OTP typing and multi-state RGB / LED status feedback.
+
+---
 
 ## Hardware Requirements
 
-- ESP32-S3 microcontroller (tested with ESP32-S3-DevKitC-1)
-- USB cable for programming and HID
-- Optional: Push button and LED for hardware controls
+- **ESP32-S3 Microcontroller** (e.g., ESP32-S3-DevKitC-1 or compatible module)
+- **USB Cable(s)**:
+  - **UART / COM port**: Used for flashing firmware and backend server communication.
+  - **Native USB port**: Used for USB HID keyboard emulation to type OTPs directly into your computer.
+- **Onboard BOOT Button**: Used to trigger OTP keyboard typing.
+- **Status Indicator**: Onboard addressable RGB LED (or standard LED).
+
+---
 
 ## Software Dependencies
 
 ### ESP32 Firmware
-- Arduino IDE 1.8+
-- ESP32 core for Arduino (https://github.com/espressif/arduino-esp32)
-- Required libraries (install via Arduino Library Manager):
-  - USBHIDKeyboard
-  - Preferences
-  - Mbed TLS (for AES and SHA-256)
+- **Arduino IDE 1.8+** or **Arduino IDE 2.x**
+- **ESP32 Arduino Core** by Espressif (`https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`)
+- *Note:* All required firmware libraries (`USBHIDKeyboard`, `Preferences`, and `mbedtls`) are **built directly into the official ESP32 Arduino Core**. No external library installation is necessary.
 
-### Python Server
-- Python 3.7+
-- Required packages:
-  ```
+### Python Backend Server
+- **Python 3.7+**
+- Required Python packages:
+  ```bash
   pip install fastapi uvicorn pyserial
   ```
 
+---
+
 ## Setup Instructions
 
-### 1. ESP32 Firmware Setup
+### 1. ESP32 Firmware Flashing
 
-1. Install Arduino IDE and ESP32 core
-2. Install required libraries via Library Manager
-3. Open `ESP32_TOTP.ino` in Arduino IDE
-4. Select ESP32-S3 board and appropriate COM port
-5. Upload the sketch to your ESP32-S3
+1. Install the ESP32 core in Arduino IDE via **Tools > Board > Boards Manager**.
+2. Open `ESP32_TOTP/ESP32_TOTP.ino` in Arduino IDE.
+3. Select your ESP32-S3 board model from **Tools > Board > esp32 > ESP32S3 Dev Module**.
+4. Enable USB mode in the Tools menu:
+   - **USB CDC On Boot:** *Enabled*
+   - **USB Mode:** *Hardware CDC and JTAG* (or *USB-OTG (TinyUSB)* depending on board setup)
+5. Select the serial port for your ESP32-S3 and click **Upload**.
 
-### 2. Python Server Setup
+> **Note:** Close the Arduino IDE Serial Monitor after uploading, as the Python server requires exclusive serial access to communicate with the device.
 
-1. Install Python dependencies:
+---
+
+### 2. Python Server Startup
+
+1. Install the required Python libraries:
    ```bash
    pip install fastapi uvicorn pyserial
    ```
 
-2. Run the server:
+2. Start the FastAPI server:
    ```bash
    python server.py
    ```
 
-3. Open your browser to `http://localhost:8000`
+3. Open your browser and navigate to:
+   ```
+   http://localhost:8000
+   ```
 
-### 3. Initial Configuration
+---
 
-1. Connect ESP32-S3 to your computer (it will appear as a serial device)
-2. The web UI will automatically detect the ESP32
-3. Set a PIN if desired (optional, device boots unlocked by default)
-4. Sync time securely using the "Secure Sync Time" button
-5. Add TOTP accounts using Base32 secrets from your authenticator apps
+## Web Dashboard & Credentials
 
-## Usage
+### Default Credentials
+* **User ID:** `admin`
+* **Password:** `admin123`
 
-### Web Interface
+### Dashboard Modes
+* **Simulation Mode (Test Login):** Validates the credentials above, guides you through the hardware key 2FA challenge, and unlocks the secure TOTP vault.
+* **Device Manager:** Allows immediate access to add new accounts, switch active accounts, delete accounts, configure PINs, and perform time synchronization without going through simulation login.
+* **Demo Portal:** A lightweight standalone demonstration portal is available under the `demo/` directory (`demo/index.html`).
 
-- **Status**: View current OTP, time sync status, and device lock state
-- **Accounts**: Add, edit, delete, and switch between TOTP accounts
-- **Sync Time**: Securely synchronize ESP32 clock with server time
-- **Type OTP**: Send current OTP via USB HID keyboard
-- **Lock/Unlock**: PIN-based device locking
+---
 
-### Hardware Controls
+## Hardware Controls & Status
 
-- **Button**: Long press (>600ms) to type current OTP (if unlocked)
-- **LED**: 
-  - Solid: Ready (synced + account active)
-  - Fast blink: Not ready (no sync or no account)
-  - Slow blink: Device locked
+### Onboard Button
+* **Press BOOT Button:** Types the active account's current 6-digit OTP followed by an `Enter` keystroke over USB HID (when device is unlocked).
 
-### Serial Commands
+### Status Feedback
+* **RGB LED (Neopixel):**
+  - **Dim Red:** Device connected but clock not synced or no account present.
+  - **Blue:** Synced, active account loaded, and ready.
+  - **Green Flash:** OTP successfully typed via USB keyboard.
+* **Standard Single-Color LED:**
+  - **Solid ON:** Synced and ready.
+  - **Fast Blink:** Not synced or no active account.
+  - **Slow Blink:** Device PIN-locked.
 
-The ESP32 responds to various serial commands for integration:
+---
 
-- `TSYNC:<unix>:<nonce>:<hmac>` - Secure time sync
-- `STATUS?` - Get device status
-- `LISTACC` - List all accounts
-- `SETACC:<idx>:<name>:<base32>` - Add/update account
-- `SETACTIVE:<idx>` - Switch active account
-- `TYPEOTP` - Type current OTP via HID
-- `SETPIN:<pin>` - Set device PIN
-- `UNLOCK:<pin>` - Unlock device
+## Serial Command Interface
 
-## Security Notes
+The ESP32 firmware accepts structured commands over serial:
 
-- Account secrets are encrypted using AES-CTR with a key derived from ESP32's unique MAC address
-- Time sync messages are HMAC-verified to prevent replay attacks
-- PIN hashes use SHA-256 with random salt
-- Device boots locked if PIN is set
-- Failed PIN attempts are limited (max 5 before lockout)
+| Command | Description |
+| :--- | :--- |
+| `STATUS?` | Queries lock status, sync state, active account, and current OTP with remaining seconds. |
+| `TSYNC:<unix>:<nonce>:<hmac>` | Authenticated secure time synchronization with HMAC signature. |
+| `LISTACC` | Lists all 10 on-device storage slots with account names and active flags. |
+| `SETACC:<idx>:<name>:<base32>` | Injects a new Base32 secret key into the specified slot index (0–9). |
+| `DELACC:<idx>` | Erases the account at the specified slot index. |
+| `SETACTIVE:<idx>` | Sets the active account index for OTP generation and keyboard typing. |
+| `NEXTACC` | Cycles to the next available account. |
+| `CURRENTACC?` | Returns the currently active account name and slot index. |
+| `TYPEOTP` | Commands the ESP32 to type the current OTP over USB HID keyboard. |
+| `TYPEACCNAME` | Commands the ESP32 to type the active account name. |
+| `TYPEALLACCOUNTS` | Types all stored account names and their current OTPs sequentially. |
+| `SETPIN:<pin>` | Sets or updates the 4–12 digit security lock PIN. |
+| `UNLOCK:<pin>` | Unlocks the device using the security PIN. |
+| `LOCK` | Immediately locks the device, blocking OTP access until unlocked. |
+| `LOCKED?` | Checks if the device is currently locked. |
+| `PING` | Health check command; responds with `PONG`. |
 
-## Configuration
+---
 
-### Sync Key
-The HMAC key for time sync must match across all components. Default:
+## Security Architecture
+
+- **Hardware-Tied Encryption**: Account secrets are encrypted with AES-CTR using a 256-bit key derived from the ESP32's unique factory eFuse MAC address. Stored secrets cannot be decrypted on another microcontroller.
+- **Replay-Resistant Clock Sync**: Serial time sync packets include a 32-bit random nonce and HMAC-SHA1 signature verified against a shared secret key (`SYNC_KEY_HEX`).
+- **PIN Salt & Hash**: Device PINs are stored as SHA-256 hashes salted with random hardware entropy (`esp_fill_random`).
+- **Brute-Force Lockout**: After 5 consecutive invalid PIN attempts, the device locks out authentication attempts.
+
+---
+
+## Project Structure
+
 ```
-00112233445566778899AABBCCDDEEFF00112233
+2FA-security-key/
+├── ESP32_TOTP/
+│   └── ESP32_TOTP.ino       # Main Arduino sketch (TOTP, AES-CTR, USB HID)
+├── demo/
+│   ├── index.html           # Standalone demo authentication portal
+│   ├── script.js            # Demo portal interactions
+│   └── style.css            # Demo portal styling
+├── index.html               # Main cyber-themed management dashboard
+├── server.py                # FastAPI backend & serial communications layer
+├── send_time_secure.py      # Standalone secure time-sync script
+├── README.md                # Project documentation
+└── .gitignore               # Ignored build and runtime artifacts
 ```
 
-Update `SYNC_KEY_HEX` in:
-- `ESP32_TOTP.ino`
-- `server.py`
-- `send_time_secure.py`
-
-### Hardware Pins
-Modify these in `ESP32_TOTP.ino` if needed:
-```cpp
-const int BUTTON_PIN = -1;  // -1 to disable
-const int LED_PIN = LED_BUILTIN;
-```
+---
 
 ## Troubleshooting
 
-- **ESP32 not detected**: Check serial port and VID/PID in `server.py`
-- **Time not syncing**: Verify SYNC_KEY matches and serial connection is stable
-- **HID not working**: Ensure ESP32 is connected via USB and recognized as keyboard
-- **Accounts not saving**: Check NVS space and encryption key derivation
+- **Device Not Detected by Server:**
+  - Verify that the ESP32-S3 is plugged into your computer and recognized in Device Manager.
+  - Make sure the Arduino IDE Serial Monitor or any other terminal program is **closed**, as serial ports can only be accessed by one application at a time.
+- **USB Keyboard Typing Not Working:**
+  - Ensure your computer is connected to the ESP32-S3's **Native USB port** (USB-OTG), not exclusively the UART/Serial port.
+  - Verify that your cursor or input field is focused on screen before triggering the BOOT button.
+- **Time Not Syncing:**
+  - Verify that `SYNC_KEY_HEX` matches between `ESP32_TOTP/ESP32_TOTP.ino`, `server.py`, and `send_time_secure.py`.
 
-## Development
-
-- `ESP32_TOTP.ino`: Main Arduino sketch
-- `server.py`: FastAPI server for web UI and serial communication
-- `send_time_secure.py`: Standalone time sync script
-- `index.html`: Web interface
+---
 
 ## License
 
 This project is open-source. Use at your own risk.
-
-## Contributing
-
-Feel free to submit issues and pull requests for improvements.
